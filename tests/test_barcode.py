@@ -5,6 +5,8 @@ import pytest
 
 from ean8_service.barcode import generate, normalize, validate
 
+EXPECTED_PAGE_COUNT = 2
+
 
 @pytest.mark.parametrize("value,expected", [
     ("1234567", "12345670"), ("96385074", "96385074"),
@@ -35,5 +37,6 @@ def test_multipage_pdf():
     """Open the actual PDF and verify pagination and readable digits."""
     pdf = generate({"codes": ["1234567"] * 12})
     with pymupdf.open(stream=pdf, filetype="pdf") as document:
-        assert len(document) == 2
-        assert "1234" in document[0].get_text()
+        assert len(document) == EXPECTED_PAGE_COUNT
+        first_page = document[0]
+        assert "1234" in first_page.get_text()

@@ -17,6 +17,8 @@ from ean8_service.client import ApiClient
 from ean8_service.storage import Store
 from ean8_service.worker import Worker
 
+FEEDBACK_PER_JOB = 1
+
 
 class ExecutionMachine(RuleBasedStateMachine):
     """Observe a blocked subprocess and its eventual terminal state."""
@@ -40,7 +42,7 @@ class ExecutionMachine(RuleBasedStateMachine):
                     assert started.wait(timeout=5)
                     pending = client.get_message_inspect(job)
                     assert pending.findtext("completed") == "0"
-                    assert len(client.get_feedback_collect(job)) == 0
+                    assert not len(client.get_feedback_collect(job))
                     release.set()
                     worker.close()
                 self.check_result(client, job, outcome)
@@ -62,7 +64,8 @@ class ExecutionMachine(RuleBasedStateMachine):
         """Hold the child process so the pending state can be inspected."""
         def run(command, **kwargs):
             """Return a generated subprocess outcome after release."""
-            assert command[1:3] == ["-m", "ean8_service.cli"]
+            module_arguments = command[1:3]
+            assert module_arguments == ["-m", "ean8_service.cli"]
             assert Path(command[3]).exists()
             started.set()
             assert release.wait(timeout=5)
@@ -80,7 +83,7 @@ class ExecutionMachine(RuleBasedStateMachine):
         """Match job and feedback state against the generated outcome."""
         assert client.get_message_inspect(job).findtext("completed") == "1"
         items = client.get_feedback_collect(job)
-        assert len(items) == 1
+        assert len(items) == FEEDBACK_PER_JOB
         result = items[0]
         if outcome == "pdf":
             assert result.findtext("status") == "succeeded"

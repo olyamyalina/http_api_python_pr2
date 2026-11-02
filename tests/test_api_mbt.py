@@ -4,6 +4,7 @@ import base64
 import json
 import tempfile
 import time
+from http import HTTPStatus
 from pathlib import Path
 from xml.etree import ElementTree as ET
 
@@ -20,6 +21,9 @@ from ean8_service.worker import Worker
 
 IPS = st.sampled_from(["127.0.0.1", "10.0.0.15", "::1"])
 PAYLOADS = st.sampled_from(["1234567", "0000001", "96385074"])
+UNIX_EPOCH = 0
+FEEDBACK_PER_JOB = 1
+REPORT_WINDOW_SECONDS = 480
 ROUTES = [
     ("POST", "account-submit"), ("GET", "account-collect"),
     ("GET", "account-inspect"), ("PATCH", "account-modify/1"),
@@ -31,21 +35,22 @@ ROUTES = [
 
 
 BAD_CASES = [
-        ("GET", "account-inspect?uid=99999", b""),
-        ("GET", "account-inspect?uid=x", b""),
-        ("GET", "account-collect?unknown=1", b""),
-        ("POST", "account-submit", b""),
-        ("POST", "account-submit?ip=invalid", b""),
-        ("PATCH", "account-modify/1", b"<record/>"),
-        ("PATCH", "account-modify/1", b"broken"),
-        ("PATCH", "account-modify/1", b"<!DOCTYPE x><x/>"),
-        ("PATCH", "account-modify/1", b"<x><ip/><ip/></x>"),
-        ("PATCH", "account-modify/1", b"<x><ip><x/></ip></x>"),
-        ("PATCH", "account-modify/1", b"x" * 65537),
-        ("PATCH", "account-modify/1", b"<x><timestamp>-1</timestamp></x>"),
-        ("POST", "message-submit?account=1&argument=invalid", b""),
-        ("POST", "message-submit?account=99999&argument={}", b""),
-    ]
+    ("GET", "account-inspect?uid=99999", b""),
+    ("GET", "account-inspect?uid=x", b""),
+    ("GET", "account-collect?unknown=1", b""),
+    ("POST", "account-submit", b""),
+    ("POST", "account-submit?ip=invalid", b""),
+    ("PATCH", "account-modify/1", b"<record/>"),
+    ("PATCH", "account-modify/1", b"broken"),
+    ("PATCH", "account-modify/1", b"<!DOCTYPE x><x/>"),
+    ("PATCH", "account-modify/1", b"<x><ip/><ip/></x>"),
+    ("PATCH", "account-modify/1", b"<x><ip><x/></ip></x>"),
+    ("PATCH", "account-modify/1", b"x" * 65537),
+    ("PATCH", "account-modify/1", b"<x><timestamp>-1</timestamp></x>"),
+    ("POST", "message-submit?account=1&argument=invalid", b""),
+    ("POST", "message-submit?account=99999&argument={}", b""),
+]
+
 
 def record(node):
     """Convert XML into a plain reference-model record."""
@@ -94,7 +99,7 @@ class ApiMachine(RuleBasedStateMachine):
         reply = self.app.request(
             path, method=method, body=body or b"", headers=headers,
         )
-        assert reply.status_int == 200
+        assert reply.status_int == HTTPStatus.OK
         assert reply.content_type == "application/xml"
         return reply.body
 
@@ -103,7 +108,7 @@ class ApiMachine(RuleBasedStateMachine):
         """Create an account and extend the reference model."""
         row = record(self.client.post_account_submit(ip))
         assert row["ip"] == ip
-        assert int(row["timestamp"]) > 0
+        assert int(row["timestamp"]) > UNIX_EPOCH
         assert row["uid"] not in self.accounts
         self.accounts[row["uid"]] = row
 
@@ -121,7 +126,7 @@ class ApiMachine(RuleBasedStateMachine):
         row["completed"] = "1"
         self.messages[row["uid"]] = row
         items = records(self.client.get_feedback_collect(row["uid"]))
-        assert len(items) == 1
+        assert len(items) == FEEDBACK_PER_JOB
         feedback = items[0]
         assert feedback["status"] == "succeeded"
         assert feedback["failure"] == ""
@@ -169,7 +174,7 @@ class ApiMachine(RuleBasedStateMachine):
             "/core/api/" + path, method=method,
             headers={"Authorization": header}, expect_errors=True,
         )
-        assert reply.status_int == 401
+        assert reply.status_int == HTTPStatus.UNAUTHORIZED
         assert reply.headers["WWW-Authenticate"].startswith("Basic ")
         assert ET.fromstring(reply.body).findtext("error") == "Unauthorized"
 
@@ -182,12 +187,22 @@ class ApiMachine(RuleBasedStateMachine):
             headers={"Authorization": self.client.authorization},
             expect_errors=True,
         )
-        assert reply.status_int == 400
+        assert reply.status_int == HTTPStatus.BAD_REQUEST
         assert ET.fromstring(reply.body).findtext("error")
 
     @invariant()
     def matches_model(self):
         """Check all visible records after every generated transition."""
+        self.check_accounts()
+        self.check_messages()
+        for uid, expected in self.feedback.items():
+            assert record(self.client.get_feedback_inspect(uid)) == expected
+        self.check_report()
+        reloaded = Store(self.store.path)
+        assert reloaded.collect("account") == self.store.collect("account")
+
+    def check_accounts(self):
+        """Compare account reads, filters and associated jobs with the model."""
         assert records(self.client.get_account_collect()) == list(
             self.accounts.values()
         )
@@ -203,6 +218,9 @@ class ApiMachine(RuleBasedStateMachine):
             ))
             assert messages == [m for m in self.messages.values()
                                 if m["account"] == uid]
+
+    def check_messages(self):
+        """Compare message reads and associated feedback with the model."""
         for uid, expected in self.messages.items():
             assert record(self.client.get_message_inspect(uid)) == expected
             selected = records(self.client.get_feedback_collect(
@@ -210,17 +228,12 @@ class ApiMachine(RuleBasedStateMachine):
             ))
             assert selected == [f for f in self.feedback.values()
                                 if f["message"] == uid]
-        for uid, expected in self.feedback.items():
-            assert record(self.client.get_feedback_inspect(uid)) == expected
-        self.check_report()
-        reloaded = Store(self.store.path)
-        assert reloaded.collect("account") == self.store.collect("account")
 
     def check_report(self):
         """Independent set model including accounts without messages."""
         expected = set()
         for uid, account in self.accounts.items():
-            if int(account["timestamp"]) >= time.time() - 480:
+            if int(account["timestamp"]) >= time.time() - REPORT_WINDOW_SECONDS:
                 arguments = {m["argument"] for m in self.messages.values()
                              if m["account"] == uid} or {""}
                 expected.update((account["ip"], value) for value in arguments)

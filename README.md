@@ -162,6 +162,12 @@ docstring:
 
 ## Проверки и покрытие
 
+Соответствие правилам оформления из начала сборника проверяется командой
+`python scripts/check_style.py`. Проверяются PEP 8, имена, сложность,
+размеры файлов и функций, аргументы, комментарии, числовые сравнения,
+структура Git и коммиты. Предел сложности принят равным 10, поскольку
+в сборнике число не задано. [Таблица соответствия](docs/code-style.md).
+
 ```powershell
 .\scripts\check.bat
 ```
@@ -200,3 +206,173 @@ HTML-отчёт открывается через `output/coverage/index.html`.
 git remote add origin https://github.com/USERNAME/REPOSITORY.git
 git push -u origin master
 ```
+
+## ?????????? ???? ???????
+
+?????????? ?????? ??????? ????????? ?? ?? docstring. ???????? ????????
+???, ?????, ????????? ??????????? ? ??????? ????????.
+
+### src/ean8_service/api.py
+
+| ??????? | ?????????? |
+|---|---|
+| `authorized` | Check a UTF-8 Basic credential pair without logging secrets. |
+| `protect` | Wrap every route with authentication and uniform XML errors. |
+| `protect.decorate` | Attach the authentication and error-response wrapper. |
+| `protect.decorate.wrapped` | Return a serialized result or a serialized client error. |
+| `query_fields` | Read and type-check query fields, rejecting unknown names. |
+| `checked` | Validate the explicitly supported mutable fields. |
+| `patch_fields` | Read a bounded XML PATCH body. |
+| `create_app` | Build an isolated application with injectable storage and worker. |
+| `create_app.get_report_collect` | Return distinct IP/argument pairs for recent accounts. |
+| `register_accounts` | Register all four Account operations. |
+| `register_accounts.post_account_submit` | Create an account using query-string parameters. |
+| `register_accounts.get_account_collect` | Search accounts using exact-match filters. |
+| `register_accounts.get_account_inspect` | Read an account identified by query-string uid. |
+| `register_accounts.patch_account_modify` | Update mutable account fields from XML. |
+| `register_messages` | Register immutable job submissions and mutable ownership metadata. |
+| `register_messages.post_message_submit` | Validate, persist and asynchronously enqueue a generation job. |
+| `register_messages.get_message_collect` | Search jobs belonging to the account in the path. |
+| `register_messages.get_message_inspect` | Read a job identified by query-string uid. |
+| `register_messages.patch_message_modify` | Change ownership or timestamp while preserving job input. |
+| `register_feedback` | Expose generated results through the two read-only endpoints. |
+| `register_feedback.get_feedback_collect` | Search results associated with the job in the path. |
+| `register_feedback.get_feedback_inspect` | Read one terminal execution result. |
+
+### src/ean8_service/barcode.py
+
+| ??????? | ?????????? |
+|---|---|
+| `normalize` | Append or verify the GS1 modulo-10 check digit. |
+| `validate` | Return normalized codes from a JSON object. |
+| `generate` | Generate A4 PDF bytes with up to ten EAN-8 labels per page. |
+
+### src/ean8_service/cli.py
+
+| ??????? | ?????????? |
+|---|---|
+| `main` | Run the stage-one command-line converter. |
+
+### src/ean8_service/client.py
+
+| ??????? | ?????????? |
+|---|---|
+| `ApiClient.__init__` | Configure the base URL, credentials and optional WSGI adapter. |
+| `ApiClient._http` | Perform a real HTTP request with a bounded connection timeout. |
+| `ApiClient._call` | Serialize request parameters and decode the XML response. |
+| `ApiClient.post_account_submit` | Create an account with a validated IP address. |
+| `ApiClient.get_account_collect` | Search accounts by IP and/or timestamp. |
+| `ApiClient.get_account_inspect` | Read one account. |
+| `ApiClient.patch_account_modify` | Modify account IP or timestamp using an XML body. |
+| `ApiClient.post_message_submit` | Submit a JSON argument string as query parameters. |
+| `ApiClient.get_message_collect` | Search messages belonging to an account. |
+| `ApiClient.get_message_inspect` | Read one job and its completed flag. |
+| `ApiClient.patch_message_modify` | Modify job account or timestamp using an XML body. |
+| `ApiClient.get_feedback_collect` | Find results for one job, optionally filtered by status. |
+| `ApiClient.get_feedback_inspect` | Read a result: PDF Base64, status, and diagnostic failure. |
+| `ApiClient.get_report_collect` | Read the report defined by formula 15. |
+
+### src/ean8_service/server.py
+
+| ??????? | ?????????? |
+|---|---|
+| `main` | Start one process; resume jobs left pending after an interruption. |
+
+### src/ean8_service/storage.py
+
+| ??????? | ?????????? |
+|---|---|
+| `Store.__init__` | Open a snapshot or initialize an empty database. |
+| `Store._save` | Replace a complete snapshot without exposing partial JSON. |
+| `Store.collect` | Return a detached list of matching records. |
+| `Store.inspect` | Find a record or raise a domain error. |
+| `Store.create` | Allocate a monotonically increasing identifier. |
+| `Store.modify` | Change existing fields atomically. |
+| `Store.finish` | Persist feedback and completed flag in the same snapshot. |
+| `Store.report` | Project distinct (ip, argument) from the prescribed outer join. |
+
+### src/ean8_service/worker.py
+
+| ??????? | ?????????? |
+|---|---|
+| `Worker.__init__` | Create the executor with configurable process timeout. |
+| `Worker.submit` | Queue a persisted message and return immediately. |
+| `Worker.execute` | Capture PDF stdout or diagnostic stderr as one feedback record. |
+| `Worker.convert` | Use an argument list, a temporary file and a finite timeout. |
+| `Worker.close` | Drain queued work during graceful shutdown or test teardown. |
+
+### src/ean8_service/xmlio.py
+
+| ??????? | ?????????? |
+|---|---|
+| `serialize` | Encode records, lists, nulls and errors without manual escaping. |
+| `parse` | Parse one flat XML record; reject nested or duplicate elements. |
+
+### tests/test_api_mbt.py
+
+| ??????? | ?????????? |
+|---|---|
+| `record` | Convert XML into a plain reference-model record. |
+| `records` | Convert a collection response into reference-model records. |
+| `ApiMachine.__init__` | Create an isolated database and independent reference model. |
+| `ApiMachine.start` | Generate initial state and mandatory request permutations. |
+| `ApiMachine.transport` | Drive the real Bottle WSGI application through ApiClient. |
+| `ApiMachine.add_account` | Create an account and extend the reference model. |
+| `ApiMachine.add_message` | Submit a job and compare its terminal state with the model. |
+| `ApiMachine.modify_account` | Generate changes crossing the report time-window boundary. |
+| `ApiMachine.modify_message` | Generate ownership and timestamp updates. |
+| `ApiMachine.unauthorized` | Reject generated unauthorized calls before parameter parsing. |
+| `ApiMachine.invalid_request` | Compare a generated malformed request with the error model. |
+| `ApiMachine.matches_model` | Check all visible records after every generated transition. |
+| `ApiMachine.check_accounts` | Compare account reads, filters and associated jobs with the model. |
+| `ApiMachine.check_messages` | Compare message reads and associated feedback with the model. |
+| `ApiMachine.check_report` | Independent set model including accounts without messages. |
+| `ApiMachine.teardown` | Drain background work and remove the isolated database. |
+
+### tests/test_barcode.py
+
+| ??????? | ?????????? |
+|---|---|
+| `test_check_digits` | Compare normalization with independently calculated examples. |
+| `test_invalid_codes` | Reject malformed values and incorrect check digits. |
+| `test_invalid_input` | Reject unsupported input structures. |
+| `test_multipage_pdf` | Open the actual PDF and verify pagination and readable digits. |
+
+### tests/test_execution_mbt.py
+
+| ??????? | ?????????? |
+|---|---|
+| `ExecutionMachine.execute_job` | Generate and inspect a complete asynchronous job lifecycle. |
+| `ExecutionMachine.transport` | Adapt WebTest without bypassing ApiClient serialization. |
+| `ExecutionMachine.transport.send` | Send one client request to the Bottle WSGI application. |
+| `ExecutionMachine.fake_process` | Hold the child process so the pending state can be inspected. |
+| `ExecutionMachine.fake_process.run` | Return a generated subprocess outcome after release. |
+| `ExecutionMachine.check_result` | Match job and feedback state against the generated outcome. |
+
+### scripts/check_style.py
+
+| ??????? | ?????????? |
+|---|---|
+| `git` | Inspect this repository without changing global Git configuration. |
+| `repository_errors` | Check required paths and Conventional Commits in local history. |
+| `tracked_file_errors` | Reject archives, binaries, caches and editor/build output in Git. |
+| `function_errors` | Count all declared arguments and physical lines including decorators. |
+| `ast_errors` | Reject long functions and numeric literals anywhere in comparisons. |
+| `has_numeric_literal` | Include tuple members, negative values and arithmetic operands. |
+| `complexity_blocks` | Visit methods and nested closures as well as top-level functions. |
+| `source_errors` | Check physical limits, comments, comparisons and Radon complexity. |
+| `lint_errors` | Run PEP 8, naming, undefined-name and McCabe checks. |
+| `main` | Fail the shared check command when any assignment rule is violated. |
+
+### scripts/demo_client.py
+
+| ??????? | ?????????? |
+|---|---|
+| `wait_result` | Poll a job with a deadline and return successful PDF bytes. |
+| `main` | Use credentials from the same configuration as the server. |
+
+### scripts/demo_examples.py
+
+| ??????? | ?????????? |
+|---|---|
+| `main` | Save raw CLI stdout as PDF and print a readable execution log. |

@@ -14,6 +14,7 @@ from .xmlio import parse, serialize
 
 INTEGER_FIELDS = {"timestamp", "account", "completed", "uid", "message"}
 MAX_BODY = 65536
+MIN_INTEGER_VALUE = 0
 
 
 def authorized(username, password):
@@ -64,7 +65,7 @@ def checked(fields, allowed, required=()):
         raise ValueError("Unknown or missing fields")
     for key in fields.keys() & INTEGER_FIELDS:
         fields[key] = int(fields[key])
-        if fields[key] < 0:
+        if fields[key] < MIN_INTEGER_VALUE:
             raise ValueError("Integer fields must be nonnegative")
     if "ip" in fields:
         ipaddress.ip_address(fields["ip"])

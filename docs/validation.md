@@ -12,13 +12,13 @@ tests/test_api_mbt.py + tests/test_execution_mbt.py: 2 passed
 
 Name                      Stmts   Miss Branch BrPart  Cover
 -----------------------------------------------------------
-src/ean8_service/api.py      110      0     16      0   100%
+src/ean8_service/api.py      111      0     16      0   100%
 -----------------------------------------------------------
-TOTAL                       110      0     16      0   100%
+TOTAL                       111      0     16      0   100%
 ```
 
 Покрытие измерено только на Hypothesis RuleBasedStateMachine, с учётом
-ветвей. Все 11 обработчиков HTTP API выполнены. 110 операторов и 16 ветвей
+ветвей. Все 11 обработчиков HTTP API выполнены. 111 операторов и 16 ветвей
 покрыты полностью. HTML и машинный JSON-отчёт создаются локально в
 `output/coverage/` и `output/coverage.json`.
 
@@ -54,3 +54,5 @@ Successfully built ean8-service
 
 В исходном Python-коде, тестах и скриптах нет строк длиннее 80 символов,
 функций длиннее 40 строк и комментариев вне docstring.
+Все правила оформления проверяются `python scripts/check_style.py`.
+Полная таблица соответствия сохранена в `docs/code-style.md`.

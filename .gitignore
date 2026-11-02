@@ -2,6 +2,7 @@
 __pycache__/
 *.py[cod]
 .pytest_cache/
+.ruff_cache/
 .hypothesis/
 .coverage
 htmlcov/
@@ -13,3 +14,10 @@ config.ini
 *.egg-info/
 build/
 dist/
+.vscode/
+.idea/
+*.zip
+*.tar
+*.tar.gz
+*.7z
+*.rar
