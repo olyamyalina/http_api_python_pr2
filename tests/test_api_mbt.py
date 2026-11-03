@@ -1,5 +1,3 @@
-"""All HTTP handler coverage comes from Hypothesis state-machine tests."""
-
 import base64
 import json
 import tempfile
@@ -10,7 +8,8 @@ from xml.etree import ElementTree as ET
 
 from hypothesis import settings, strategies as st
 from hypothesis.stateful import (
-    RuleBasedStateMachine, initialize, invariant, rule,
+    Bundle, RuleBasedStateMachine, initialize, invariant, rule,
+    run_state_machine_as_test,
 )
 from webtest import TestApp
 
@@ -53,17 +52,16 @@ BAD_CASES = [
 
 
 def record(node):
-    """Convert XML into a plain reference-model record."""
     return {child.tag: child.text or "" for child in node}
 
 
 def records(node):
-    """Convert a collection response into reference-model records."""
     return [record(item) for item in node]
 
 
-class ApiMachine(RuleBasedStateMachine):
-    """Generate submissions, updates, reads, filtering and invalid calls."""
+class AppModel(RuleBasedStateMachine):
+    account_ids = Bundle("accounts")
+    message_ids = Bundle("messages")
 
     def __init__(self):
         """Create an isolated database and independent reference model."""
@@ -79,23 +77,21 @@ class ApiMachine(RuleBasedStateMachine):
                 denied=st.permutations(ROUTES),
                 ownership=st.permutations([False, True]))
     def start(self, test_mode, bad_cases, denied, ownership):
-        """Generate initial state and mandatory request permutations."""
         self.test_mode = test_mode
         self.worker = Worker(self.store, test_mode=test_mode)
         self.app = TestApp(create_app(self.store, self.worker, "user", "pass"))
         self.client = ApiClient("", "user", "pass", self.transport)
-        self.add_account("127.0.0.1")
-        self.add_message("1234567", 0)
-        self.modify_account("::1", False, 0)
+        account = self.create_account("127.0.0.1")
+        message = self.create_message(account, "1234567")
+        self.modify_account(account, "::1", False)
         for change_owner in ownership:
-            self.modify_message(0, change_owner)
+            self.modify_message(message, account, change_owner)
         for case in bad_cases:
             self.invalid_request(case)
         for route in denied:
             self.unauthorized(route, "")
 
     def transport(self, method, path, body, headers):
-        """Drive the real Bottle WSGI application through ApiClient."""
         reply = self.app.request(
             path, method=method, body=body or b"", headers=headers,
         )
@@ -103,19 +99,17 @@ class ApiMachine(RuleBasedStateMachine):
         assert reply.content_type == "application/xml"
         return reply.body
 
-    @rule(ip=IPS)
-    def add_account(self, ip):
-        """Create an account and extend the reference model."""
+    @rule(target=account_ids, ip=IPS)
+    def create_account(self, ip):
         row = record(self.client.post_account_submit(ip))
         assert row["ip"] == ip
         assert int(row["timestamp"]) > UNIX_EPOCH
         assert row["uid"] not in self.accounts
         self.accounts[row["uid"]] = row
+        return row["uid"]
 
-    @rule(code=PAYLOADS, index=st.integers(min_value=0, max_value=30))
-    def add_message(self, code, index):
-        """Submit a job and compare its terminal state with the model."""
-        account = list(self.accounts)[index % len(self.accounts)]
+    @rule(target=message_ids, account=account_ids, code=PAYLOADS)
+    def create_message(self, account, code):
         argument = json.dumps({"codes": [code]})
         row = record(self.client.post_message_submit(account, argument))
         assert row["completed"] == "0"
@@ -137,38 +131,35 @@ class ApiMachine(RuleBasedStateMachine):
         self.feedback[feedback["uid"]] = feedback
         self.worker = Worker(self.store, test_mode=self.test_mode)
         self.app = TestApp(create_app(self.store, self.worker, "user", "pass"))
+        return row["uid"]
 
-    @rule(ip=IPS, old=st.booleans(), index=st.integers(0, 30))
-    def modify_account(self, ip, old, index):
-        """Generate changes crossing the report time-window boundary."""
-        uid = list(self.accounts)[index % len(self.accounts)]
+    @rule(account=account_ids, ip=IPS, old=st.booleans())
+    def modify_account(self, account, ip, old):
         stamp = int(time.time()) - (600 if old else 0)
-        expected = {**self.accounts[uid], "ip": ip, "timestamp": str(stamp)}
+        expected = {
+            **self.accounts[account], "ip": ip, "timestamp": str(stamp),
+        }
         actual = record(self.client.patch_account_modify(
-            uid, ip=ip, timestamp=stamp,
+            account, ip=ip, timestamp=stamp,
         ))
         assert actual == expected
-        self.accounts[uid] = expected
+        self.accounts[account] = expected
 
-    @rule(index=st.integers(0, 30), ownership=st.booleans())
-    def modify_message(self, index, ownership):
-        """Generate ownership and timestamp updates."""
-        uid = list(self.messages)[index % len(self.messages)]
-        account = list(self.accounts)[index % len(self.accounts)]
+    @rule(message=message_ids, account=account_ids, ownership=st.booleans())
+    def modify_message(self, message, account, ownership):
         changes = {"timestamp": "1"}
         if ownership:
             changes["account"] = account
-        expected = {**self.messages[uid], **changes}
-        actual = record(self.client.patch_message_modify(uid, **changes))
+        expected = {**self.messages[message], **changes}
+        actual = record(self.client.patch_message_modify(message, **changes))
         assert actual == expected
-        self.messages[uid] = expected
+        self.messages[message] = expected
 
     @rule(route=st.sampled_from(ROUTES), header=st.sampled_from([
         "", "Basic !!!", "Bearer abc", "Basic dXNlcjpiYWQ=",
         "Basic /w==", "Basic bm9jb2xvbg==",
     ]))
     def unauthorized(self, route, header):
-        """Reject generated unauthorized calls before parameter parsing."""
         method, path = route
         reply = self.app.request(
             "/core/api/" + path, method=method,
@@ -180,7 +171,6 @@ class ApiMachine(RuleBasedStateMachine):
 
     @rule(case=st.sampled_from(BAD_CASES))
     def invalid_request(self, case):
-        """Compare a generated malformed request with the error model."""
         method, path, body = case
         reply = self.app.request(
             "/core/api/" + path, method=method, body=body,
@@ -192,7 +182,6 @@ class ApiMachine(RuleBasedStateMachine):
 
     @invariant()
     def matches_model(self):
-        """Check all visible records after every generated transition."""
         self.check_accounts()
         self.check_messages()
         for uid, expected in self.feedback.items():
@@ -202,7 +191,6 @@ class ApiMachine(RuleBasedStateMachine):
         assert reloaded.collect("account") == self.store.collect("account")
 
     def check_accounts(self):
-        """Compare account reads, filters and associated jobs with the model."""
         assert records(self.client.get_account_collect()) == list(
             self.accounts.values()
         )
@@ -220,7 +208,6 @@ class ApiMachine(RuleBasedStateMachine):
                                 if m["account"] == uid]
 
     def check_messages(self):
-        """Compare message reads and associated feedback with the model."""
         for uid, expected in self.messages.items():
             assert record(self.client.get_message_inspect(uid)) == expected
             selected = records(self.client.get_feedback_collect(
@@ -230,7 +217,6 @@ class ApiMachine(RuleBasedStateMachine):
                                 if f["message"] == uid]
 
     def check_report(self):
-        """Independent set model including accounts without messages."""
         expected = set()
         for uid, account in self.accounts.items():
             if int(account["timestamp"]) >= time.time() - REPORT_WINDOW_SECONDS:
@@ -242,11 +228,14 @@ class ApiMachine(RuleBasedStateMachine):
         assert len(actual) == len(expected)
 
     def teardown(self):
-        """Drain background work and remove the isolated database."""
         self.worker.close()
         self.directory.cleanup()
 
 
-TestApi = ApiMachine.TestCase
-TestApi.settings = settings(max_examples=20, stateful_step_count=20,
-                            deadline=None)
+def test_api_model():
+    run_state_machine_as_test(
+        AppModel,
+        settings=settings(
+            max_examples=20, stateful_step_count=20, deadline=None,
+        ),
+    )
