@@ -1,5 +1,3 @@
-"""Read JSON from a file; emit raw PDF bytes to stdout."""
-
 import argparse
 import json
 import sys
@@ -9,7 +7,6 @@ from .barcode import generate
 
 
 def main():
-    """Run the stage-one command-line converter."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("input", type=Path, help="UTF-8 JSON input file")
     args = parser.parse_args()

@@ -1,5 +1,3 @@
-"""Validate EAN-8 data and render vector barcodes as a PDF."""
-
 from io import BytesIO
 
 from reportlab.graphics.barcode import createBarcodeDrawing
@@ -16,7 +14,6 @@ CHECK_WEIGHTS = (3, 1)
 
 
 def normalize(value):
-    """Append or verify the GS1 modulo-10 check digit."""
     if not isinstance(value, str) or not value.isascii():
         raise ValueError("Codes must be ASCII digit strings")
     if not value.isdigit() or len(value) not in (PAYLOAD_LENGTH, CODE_LENGTH):
@@ -31,7 +28,6 @@ def normalize(value):
 
 
 def validate(data):
-    """Return normalized codes from a JSON object."""
     if not isinstance(data, dict) or set(data) != {"codes"}:
         raise ValueError('Expected an object with the single key "codes"')
     values = data["codes"]
@@ -42,7 +38,6 @@ def validate(data):
 
 
 def generate(data):
-    """Generate A4 PDF bytes with up to ten EAN-8 labels per page."""
     codes = validate(data)
     stream = BytesIO()
     canvas = Canvas(stream, pagesize=A4, invariant=True)

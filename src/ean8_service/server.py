@@ -1,5 +1,3 @@
-"""Read configuration and serve the Bottle application."""
-
 import argparse
 import configparser
 from pathlib import Path
@@ -12,7 +10,6 @@ from .worker import Worker
 
 
 def main():
-    """Start one process; resume jobs left pending after an interruption."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--config", default="config.ini")
     args = parser.parse_args()

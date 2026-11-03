@@ -1,5 +1,3 @@
-"""Thread-safe, atomically replaced JSON database for one server process."""
-
 import copy
 import json
 import threading
@@ -11,10 +9,7 @@ REPORT_WINDOW = 8 * 60
 
 
 class Store:
-    """Persist ER records and serialize concurrent read/modify/write calls."""
-
     def __init__(self, path):
-        """Open a snapshot or initialize an empty database."""
         self.path = Path(path)
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self.lock = threading.RLock()
@@ -23,13 +18,11 @@ class Store:
             self.data = json.loads(self.path.read_text(encoding="utf-8"))
 
     def _save(self):
-        """Replace a complete snapshot without exposing partial JSON."""
         temporary = self.path.with_suffix(".tmp")
         temporary.write_text(json.dumps(self.data), encoding="utf-8")
         temporary.replace(self.path)
 
     def collect(self, table, **filters):
-        """Return a detached list of matching records."""
         with self.lock:
             return copy.deepcopy([
                 row for row in self.data[table]
@@ -37,14 +30,12 @@ class Store:
             ])
 
     def inspect(self, table, uid):
-        """Find a record or raise a domain error."""
         rows = self.collect(table, uid=uid)
         if not rows:
             raise ValueError("Record not found")
         return rows[0]
 
     def create(self, table, **fields):
-        """Allocate a monotonically increasing identifier."""
         with self.lock:
             uid = max((r["uid"] for r in self.data[table]), default=0) + 1
             row = {"uid": uid, "timestamp": int(time.time()), **fields}
@@ -53,7 +44,6 @@ class Store:
             return copy.deepcopy(row)
 
     def modify(self, table, uid, fields):
-        """Change existing fields atomically."""
         with self.lock:
             self.inspect(table, uid)
             row = next(r for r in self.data[table] if r["uid"] == int(uid))
@@ -62,7 +52,6 @@ class Store:
             return copy.deepcopy(row)
 
     def finish(self, uid, result, failure):
-        """Persist feedback and completed flag in the same snapshot."""
         with self.lock:
             message = next(r for r in self.data["message"] if r["uid"] == uid)
             feedback_uid = len(self.data["feedback"]) + 1
@@ -75,7 +64,6 @@ class Store:
             self._save()
 
     def report(self):
-        """Project distinct (ip, argument) from the prescribed outer join."""
         with self.lock:
             rows = set()
             for account in self.data["account"]:

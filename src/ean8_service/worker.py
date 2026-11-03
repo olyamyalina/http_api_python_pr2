@@ -1,5 +1,3 @@
-"""Background queue that delegates PDF generation to the stage-one CLI."""
-
 import base64
 import os
 import subprocess
@@ -10,21 +8,16 @@ from pathlib import Path
 
 
 class Worker:
-    """Run subprocesses without blocking HTTP handlers."""
-
     def __init__(self, store, test_mode=False, workers=2, timeout=30):
-        """Create the executor with configurable process timeout."""
         self.store = store
         self.test_mode = test_mode
         self.timeout = timeout
         self.pool = ThreadPoolExecutor(max_workers=workers)
 
     def submit(self, message):
-        """Queue a persisted message and return immediately."""
         self.pool.submit(self.execute, message)
 
     def execute(self, message):
-        """Capture PDF stdout or diagnostic stderr as one feedback record."""
         try:
             result = "" if self.test_mode else self.convert(message["argument"])
             failure = ""
@@ -33,7 +26,6 @@ class Worker:
         self.store.finish(message["uid"], result, failure)
 
     def convert(self, argument):
-        """Use an argument list, a temporary file and a finite timeout."""
         with tempfile.TemporaryDirectory(prefix="ean8-") as directory:
             source = Path(directory) / "input.json"
             source.write_text(argument, encoding="utf-8")
@@ -50,5 +42,4 @@ class Worker:
         return base64.b64encode(process.stdout).decode("ascii")
 
     def close(self):
-        """Drain queued work during graceful shutdown or test teardown."""
         self.pool.shutdown(wait=True)

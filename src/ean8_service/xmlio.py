@@ -1,10 +1,7 @@
-"""Small XML serialization helpers shared by server and client."""
-
 from xml.etree import ElementTree as ET
 
 
 def serialize(value, root="response"):
-    """Encode records, lists, nulls and errors without manual escaping."""
     node = ET.Element(root)
     if isinstance(value, list):
         for item in value:
@@ -20,7 +17,6 @@ def serialize(value, root="response"):
 
 
 def parse(body):
-    """Parse one flat XML record; reject nested or duplicate elements."""
     if b"<!" in body:
         raise ValueError("XML declarations and entities are not allowed")
     try:

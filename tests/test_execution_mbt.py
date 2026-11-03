@@ -1,5 +1,3 @@
-"""Hypothesis-generated checks for pending jobs and CLI failure feedback."""
-
 import base64
 import json
 import subprocess
@@ -21,11 +19,8 @@ FEEDBACK_PER_JOB = 1
 
 
 class ExecutionMachine(RuleBasedStateMachine):
-    """Observe a blocked subprocess and its eventual terminal state."""
-
     @rule(outcome=st.sampled_from(["pdf", "exit", "invalid", "timeout", "os"]))
     def execute_job(self, outcome):
-        """Generate and inspect a complete asynchronous job lifecycle."""
         with tempfile.TemporaryDirectory() as directory:
             store = Store(Path(directory) / "db.json")
             worker = Worker(store)
@@ -52,18 +47,14 @@ class ExecutionMachine(RuleBasedStateMachine):
 
     @staticmethod
     def transport(app):
-        """Adapt WebTest without bypassing ApiClient serialization."""
         def send(method, path, body, headers):
-            """Send one client request to the Bottle WSGI application."""
             return app.request(path, method=method, body=body or b"",
                                headers=headers).body
         return send
 
     @staticmethod
     def fake_process(outcome, started, release):
-        """Hold the child process so the pending state can be inspected."""
         def run(command, **kwargs):
-            """Return a generated subprocess outcome after release."""
             module_arguments = command[1:3]
             assert module_arguments == ["-m", "ean8_service.cli"]
             assert Path(command[3]).exists()
@@ -80,7 +71,6 @@ class ExecutionMachine(RuleBasedStateMachine):
 
     @staticmethod
     def check_result(client, job, outcome):
-        """Match job and feedback state against the generated outcome."""
         assert client.get_message_inspect(job).findtext("completed") == "1"
         items = client.get_feedback_collect(job)
         assert len(items) == FEEDBACK_PER_JOB
