@@ -176,7 +176,7 @@ docstring:
 RuleBasedStateMachine для измерения покрытия HTTP-обработчиков:
 
 ```powershell
-python -m coverage run --branch --source=ean8_service.api -m pytest tests/test_api_mbt.py tests/test_execution_mbt.py -q
+python -m coverage run --branch --source=ean8_service.api -m pytest tests/test_api_mbt.py -q
 python -m coverage report --fail-under=100
 python -m coverage html -d output/coverage
 python -m coverage json -o output/coverage.json
@@ -184,10 +184,9 @@ python -m coverage json -o output/coverage.json
 
 `test_api_mbt.py` сравнивает API с независимой моделью Account, Message,
 Feedback и отчёта, проверяет фильтры, авторизацию, XML-ошибки, перезагрузку
-файловой базы, тестовый режим и реальные subprocess. `test_execution_mbt.py`
-проверяет наблюдаемый незавершённый статус, успешное завершение, ошибку CLI,
-неверный stdout, тайм-аут и ошибку запуска. Запросы выполняются API-клиентом;
-некорректные запросы проверяются напрямую через WSGI-транспорт WebTest.
+файловой базы, тестовый режим и реальные subprocess. Запросы выполняются
+API-клиентом; некорректные запросы проверяются напрямую через WSGI-транспорт
+WebTest.
 Ручные запросы и тесты CLI не включаются в отчёт покрытия API.
 HTML-отчёт открывается через `output/coverage/index.html`.
 Полученный результат: 100% операторов и ветвей модуля API.
@@ -314,20 +313,20 @@ git push -u origin master
 |---|---|
 | `record` | Convert XML into a plain reference-model record. |
 | `records` | Convert a collection response into reference-model records. |
-| `ApiMachine.__init__` | Create an isolated database and independent reference model. |
-| `ApiMachine.start` | Generate initial state and mandatory request permutations. |
-| `ApiMachine.transport` | Drive the real Bottle WSGI application through ApiClient. |
-| `ApiMachine.add_account` | Create an account and extend the reference model. |
-| `ApiMachine.add_message` | Submit a job and compare its terminal state with the model. |
-| `ApiMachine.modify_account` | Generate changes crossing the report time-window boundary. |
-| `ApiMachine.modify_message` | Generate ownership and timestamp updates. |
-| `ApiMachine.unauthorized` | Reject generated unauthorized calls before parameter parsing. |
-| `ApiMachine.invalid_request` | Compare a generated malformed request with the error model. |
-| `ApiMachine.matches_model` | Check all visible records after every generated transition. |
-| `ApiMachine.check_accounts` | Compare account reads, filters and associated jobs with the model. |
-| `ApiMachine.check_messages` | Compare message reads and associated feedback with the model. |
-| `ApiMachine.check_report` | Independent set model including accounts without messages. |
-| `ApiMachine.teardown` | Drain background work and remove the isolated database. |
+| `AppModel.__init__` | Create an isolated database and independent reference model. |
+| `AppModel.start` | Generate initial state and mandatory request permutations. |
+| `AppModel.transport` | Drive the real Bottle WSGI application through ApiClient. |
+| `AppModel.create_account` | Create an account and return its id to a Bundle. |
+| `AppModel.create_message` | Create a job and return its id to a Bundle. |
+| `AppModel.modify_account` | Generate changes crossing the report time window. |
+| `AppModel.modify_message` | Generate ownership and timestamp updates. |
+| `AppModel.unauthorized` | Reject generated unauthorized calls. |
+| `AppModel.invalid_request` | Compare malformed requests with the error model. |
+| `AppModel.matches_model` | Compare visible records after every transition. |
+| `AppModel.check_accounts` | Compare account reads and filters with the model. |
+| `AppModel.check_messages` | Compare message and feedback reads with the model. |
+| `AppModel.check_report` | Compare the report with an independent set model. |
+| `AppModel.teardown` | Drain background work and remove the temporary database. |
 
 ### tests/test_barcode.py
 
@@ -337,17 +336,6 @@ git push -u origin master
 | `test_invalid_codes` | Reject malformed values and incorrect check digits. |
 | `test_invalid_input` | Reject unsupported input structures. |
 | `test_multipage_pdf` | Open the actual PDF and verify pagination and readable digits. |
-
-### tests/test_execution_mbt.py
-
-| ??????? | ?????????? |
-|---|---|
-| `ExecutionMachine.execute_job` | Generate and inspect a complete asynchronous job lifecycle. |
-| `ExecutionMachine.transport` | Adapt WebTest without bypassing ApiClient serialization. |
-| `ExecutionMachine.transport.send` | Send one client request to the Bottle WSGI application. |
-| `ExecutionMachine.fake_process` | Hold the child process so the pending state can be inspected. |
-| `ExecutionMachine.fake_process.run` | Return a generated subprocess outcome after release. |
-| `ExecutionMachine.check_result` | Match job and feedback state against the generated outcome. |
 
 ### scripts/check_style.py
 
