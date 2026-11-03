@@ -33,7 +33,16 @@ def main():
     parser.add_argument("--config", default="config.ini")
     args = parser.parse_args()
     config = configparser.ConfigParser()
-    config.read(args.config, encoding="utf-8")
+    loaded_files = config.read(args.config, encoding="utf-8")
+    if not loaded_files:
+        parser.error(
+            f"configuration file '{args.config}' was not found; "
+            "copy config.example.ini to config.ini",
+        )
+    if not config.has_section("server"):
+        parser.error(
+            f"configuration file '{args.config}' must contain [server]",
+        )
     options = config["server"]
     client = ApiClient(
         f"http://{options['host']}:{options['port']}",
