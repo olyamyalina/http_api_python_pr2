@@ -7,7 +7,11 @@ name = "ean8-service"
 version = "0.1.0"
 description = "Variant 15: asynchronous EAN-8 PDF generation"
 requires-python = ">=3.11"
-dependencies = ["bottle==0.13.4", "reportlab==5.1.0"]
+dependencies = [
+    "bottle==0.13.4",
+    "reportlab==5.1.0",
+    "SQLAlchemy>=2.0,<2.1",
+]
 
 [project.optional-dependencies]
 test = ["pytest>=8,<10", "hypothesis>=6,<7", "coverage>=7,<8",

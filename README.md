@@ -63,7 +63,8 @@ stdout содержит PDF; stderr и ненулевой код заверше�
 После обработки атомарно сохраняются Feedback и `completed=1`.
 Клиент опрашивает `feedback-collect` и декодирует Base64.
 
-Файловое хранилище `data/database.json` соответствует рисунку 15:
+Схема данных соответствует рисунку 15. На этапе 3 записи хранятся
+в SQLite (`data/database.sqlite`) через SQLAlchemy ORM:
 
 | Таблица | Поля |
 |---|---|
@@ -77,10 +78,25 @@ stdout содержит PDF; stderr и ненулевой код заверше�
 `failure` - диагностический текст. В тестовом режиме результат пустой,
 статус успешный, CLI не запускается.
 
-Снимок JSON заменяется атомарно; RLock синхронизирует потоки одного процесса.
-Запускайте один процесс сервера на один файл базы данных. Незавершённые
-задачи повторно ставятся в очередь после перезапуска. Принятые задания
-переживают штатное завершение; гарантия exactly-once при аварии не заявляется.
+Каждая операция открывает отдельную Session. Создание Feedback и установка
+`completed=1` выполняются в одной транзакции. Проверка внешних ключей SQLite
+включается для каждого подключения. При остановке сервер дожидается фоновых
+задач и освобождает подключения. Незавершённые задания повторно ставятся
+в очередь после перезапуска. Гарантия exactly-once при аварии не заявляется.
+
+## Этап 3: SQLite и SQLAlchemy ORM
+
+`models.py` описывает таблицы Account, Message и Feedback с первичными
+и внешними ключами. `storage.py` реализует операции через SQLAlchemy ORM.
+Методы HTTP API и формат XML сохранены; MBT проверяет API с настоящей SQLite.
+Отчёт использует левое внешнее соединение, фильтр времени и DISTINCT.
+После фильтра по Account.timestamp результат эквивалентен полному внешнему
+соединению из формулы 15: строки без Account не проходят условие времени.
+
+В `config.ini` укажите `database = data/database.sqlite`. Старый JSON-файл
+не преобразуется автоматически и может храниться отдельно. Для установки
+SQLAlchemy используйте команду установки зависимостей из раздела запуска.
+Запуск сервера, демонстрационного клиента и `scripts/check.bat` не изменился.
 
 ## Маршруты HTTP API
 
@@ -141,7 +157,7 @@ curl.exe -u student:change-me "http://127.0.0.1:8080/core/api/report-collect"
 | port | 8080 | HTTP-порт |
 | username | student | Имя для Basic Auth |
 | password | change-me | Пароль, замените перед внешним доступом |
-| database | data/database.json | Путь относительно конфигурационного файла |
+| database | data/database.sqlite | Путь относительно конфигурационного файла |
 | test_mode | false | true: обработка без запуска CLI и без PDF |
 | workers | 2 | Число параллельных исполнителей |
 | timeout | 30 | Тайм-аут CLI в секундах |
@@ -154,7 +170,8 @@ docstring:
 | barcode | normalize: контрольная цифра; validate: входные данные; generate: PDF |
 | cli | main: чтение файла, stdout/stderr и код завершения |
 | storage | Store: create, collect, inspect, modify, finish, report |
-| worker | Worker: submit, execute, convert, close |
+| models | Base, Account, Message, Feedback: описание таблиц SQLAlchemy |
+| server | main: запуск сервера; process_message, convert: обработка задания |
 | api | create_app и регистрация маршрутов, protect, проверка параметров |
 | xmlio | serialize: XML-ответ; parse: плоский XML PATCH |
 | client | ApiClient: 11 методов и HTTP-транспорт на urllib |
@@ -184,7 +201,7 @@ python -m coverage json -o output/coverage.json
 
 `test_api_mbt.py` сравнивает API с независимой моделью Account, Message,
 Feedback и отчёта, проверяет фильтры, авторизацию, XML-ошибки, перезагрузку
-файловой базы, тестовый режим и реальные subprocess. Запросы выполняются
+базы SQLite, тестовый режим и реальные subprocess. Запросы выполняются
 API-клиентом; некорректные запросы проверяются напрямую через WSGI-транспорт
 WebTest.
 Ручные запросы и тесты CLI не включаются в отчёт покрытия API.
@@ -222,7 +239,7 @@ git push -u origin master
 | `query_fields` | Read and type-check query fields, rejecting unknown names. |
 | `checked` | Validate the explicitly supported mutable fields. |
 | `patch_fields` | Read a bounded XML PATCH body. |
-| `create_app` | Build an isolated application with injectable storage and worker. |
+| `create_app` | Build an application with storage and a background submit call. |
 | `create_app.get_report_collect` | Return distinct IP/argument pairs for recent accounts. |
 | `register_accounts` | Register all four Account operations. |
 | `register_accounts.post_account_submit` | Create an account using query-string parameters. |
@@ -281,24 +298,22 @@ git push -u origin master
 
 | ??????? | ?????????? |
 |---|---|
-| `Store.__init__` | Open a snapshot or initialize an empty database. |
-| `Store._save` | Replace a complete snapshot without exposing partial JSON. |
+| `enable_foreign_keys` | Enable SQLite foreign key checks on each connection. |
+| `Store.__init__` | Create the SQLite engine and missing ORM tables. |
 | `Store.collect` | Return a detached list of matching records. |
 | `Store.inspect` | Find a record or raise a domain error. |
-| `Store.create` | Allocate a monotonically increasing identifier. |
+| `Store.create` | Insert an ORM object and return its stored fields. |
 | `Store.modify` | Change existing fields atomically. |
-| `Store.finish` | Persist feedback and completed flag in the same snapshot. |
+| `Store.finish` | Persist feedback and completed flag in one transaction. |
 | `Store.report` | Project distinct (ip, argument) from the prescribed outer join. |
+| `Store.close` | Dispose of pooled database connections. |
 
-### src/ean8_service/worker.py
+### Обработка фонового задания в src/ean8_service/server.py
 
 | ??????? | ?????????? |
 |---|---|
-| `Worker.__init__` | Create the executor with configurable process timeout. |
-| `Worker.submit` | Queue a persisted message and return immediately. |
-| `Worker.execute` | Capture PDF stdout or diagnostic stderr as one feedback record. |
-| `Worker.convert` | Use an argument list, a temporary file and a finite timeout. |
-| `Worker.close` | Drain queued work during graceful shutdown or test teardown. |
+| `process_message` | Save the PDF or failure as feedback for a background job. |
+| `convert` | Launch the CLI with a temporary JSON file and a finite timeout. |
 
 ### src/ean8_service/xmlio.py
 

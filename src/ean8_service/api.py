@@ -74,11 +74,11 @@ def patch_fields(allowed):
     return fields
 
 
-def create_app(store, worker, username, password):
+def create_app(store, submit, username, password):
     app = Bottle()
     app.install(protect(username, password))
     register_accounts(app, store)
-    register_messages(app, store, worker)
+    register_messages(app, store, submit)
     register_feedback(app, store)
 
     @app.get("/core/api/report-collect")
@@ -107,14 +107,14 @@ def register_accounts(app, store):
         return store.modify("account", uid, patch_fields({"ip", "timestamp"}))
 
 
-def register_messages(app, store, worker):
+def register_messages(app, store, submit):
     @app.post("/core/api/message-submit")
     def post_message_submit():
         fields = query_fields({"account", "argument"}, {"account", "argument"})
         store.inspect("account", fields["account"])
         validate(json.loads(fields["argument"]))
         message = store.create("message", completed=0, **fields)
-        worker.submit(message)
+        submit(message)
         return message
 
     @app.get("/core/api/message-collect/<account:int>")

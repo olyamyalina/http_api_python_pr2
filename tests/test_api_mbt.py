@@ -2,6 +2,8 @@ import base64
 import json
 import tempfile
 import time
+from concurrent.futures import ThreadPoolExecutor
+from functools import partial
 from http import HTTPStatus
 from pathlib import Path
 from xml.etree import ElementTree as ET
@@ -16,7 +18,7 @@ from webtest import TestApp
 from ean8_service.api import create_app
 from ean8_service.client import ApiClient
 from ean8_service.storage import Store
-from ean8_service.worker import Worker
+from ean8_service.server import process_message
 
 IPS = st.sampled_from(["127.0.0.1", "10.0.0.15", "::1"])
 PAYLOADS = st.sampled_from(["1234567", "0000001", "96385074"])
@@ -67,10 +69,11 @@ class AppModel(RuleBasedStateMachine):
         """Create an isolated database and independent reference model."""
         super().__init__()
         self.directory = tempfile.TemporaryDirectory()
-        self.store = Store(Path(self.directory.name) / "db.json")
+        self.store = Store(Path(self.directory.name) / "db.sqlite")
         self.accounts = {}
         self.messages = {}
         self.feedback = {}
+        self.pool = ThreadPoolExecutor(max_workers=2)
 
     @initialize(test_mode=st.booleans(),
                 bad_cases=st.permutations(BAD_CASES),
@@ -78,8 +81,9 @@ class AppModel(RuleBasedStateMachine):
                 ownership=st.permutations([False, True]))
     def start(self, test_mode, bad_cases, denied, ownership):
         self.test_mode = test_mode
-        self.worker = Worker(self.store, test_mode=test_mode)
-        self.app = TestApp(create_app(self.store, self.worker, "user", "pass"))
+        process = partial(process_message, self.store, test_mode=test_mode)
+        submit = partial(self.pool.submit, process)
+        self.app = TestApp(create_app(self.store, submit, "user", "pass"))
         self.client = ApiClient("", "user", "pass", self.transport)
         account = self.create_account("127.0.0.1")
         message = self.create_message(account, "1234567")
@@ -115,11 +119,9 @@ class AppModel(RuleBasedStateMachine):
         assert row["completed"] == "0"
         assert row["argument"] == argument
         assert row["account"] == account
-        self.worker.pool.submit(lambda: None).result(timeout=15)
-        self.worker.close()
         row["completed"] = "1"
         self.messages[row["uid"]] = row
-        items = records(self.client.get_feedback_collect(row["uid"]))
+        items = self.wait_feedback(row["uid"])
         assert len(items) == FEEDBACK_PER_JOB
         feedback = items[0]
         assert feedback["status"] == "succeeded"
@@ -129,9 +131,16 @@ class AppModel(RuleBasedStateMachine):
         else:
             assert base64.b64decode(feedback["result"]).startswith(b"%PDF-")
         self.feedback[feedback["uid"]] = feedback
-        self.worker = Worker(self.store, test_mode=self.test_mode)
-        self.app = TestApp(create_app(self.store, self.worker, "user", "pass"))
         return row["uid"]
+
+    def wait_feedback(self, message):
+        deadline = time.monotonic() + 15
+        while time.monotonic() < deadline:
+            items = records(self.client.get_feedback_collect(message))
+            if items:
+                return items
+            time.sleep(0.01)
+        raise AssertionError("No feedback before the deadline")
 
     @rule(account=account_ids, ip=IPS, old=st.booleans())
     def modify_account(self, account, ip, old):
@@ -188,7 +197,10 @@ class AppModel(RuleBasedStateMachine):
             assert record(self.client.get_feedback_inspect(uid)) == expected
         self.check_report()
         reloaded = Store(self.store.path)
-        assert reloaded.collect("account") == self.store.collect("account")
+        try:
+            assert reloaded.collect("account") == self.store.collect("account")
+        finally:
+            reloaded.close()
 
     def check_accounts(self):
         assert records(self.client.get_account_collect()) == list(
@@ -228,8 +240,13 @@ class AppModel(RuleBasedStateMachine):
         assert len(actual) == len(expected)
 
     def teardown(self):
-        self.worker.close()
-        self.directory.cleanup()
+        try:
+            self.pool.shutdown(wait=True)
+        finally:
+            try:
+                self.store.close()
+            finally:
+                self.directory.cleanup()
 
 
 def test_api_model():
