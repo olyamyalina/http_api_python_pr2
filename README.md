@@ -329,7 +329,7 @@ git push -u origin master
 | `record` | Convert XML into a plain reference-model record. |
 | `records` | Convert a collection response into reference-model records. |
 | `AppModel.__init__` | Create an isolated database and independent reference model. |
-| `AppModel.start` | Generate initial state and mandatory request permutations. |
+| `AppModel.start` | Configure the application and client for an empty model. |
 | `AppModel.transport` | Drive the real Bottle WSGI application through ApiClient. |
 | `AppModel.create_account` | Create an account and return its id to a Bundle. |
 | `AppModel.create_message` | Create a job and return its id to a Bundle. |

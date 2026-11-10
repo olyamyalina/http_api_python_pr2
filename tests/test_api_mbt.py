@@ -25,6 +25,7 @@ PAYLOADS = st.sampled_from(["1234567", "0000001", "96385074"])
 UNIX_EPOCH = 0
 FEEDBACK_PER_JOB = 1
 REPORT_WINDOW_SECONDS = 480
+OVERSIZED_BODY_BYTES = 65537
 ROUTES = [
     ("POST", "account-submit"), ("GET", "account-collect"),
     ("GET", "account-inspect"), ("PATCH", "account-modify/1"),
@@ -35,22 +36,28 @@ ROUTES = [
 ]
 
 
-BAD_CASES = [
-    ("GET", "account-inspect?uid=99999", b""),
-    ("GET", "account-inspect?uid=x", b""),
-    ("GET", "account-collect?unknown=1", b""),
-    ("POST", "account-submit", b""),
-    ("POST", "account-submit?ip=invalid", b""),
-    ("PATCH", "account-modify/1", b"<record/>"),
-    ("PATCH", "account-modify/1", b"broken"),
-    ("PATCH", "account-modify/1", b"<!DOCTYPE x><x/>"),
-    ("PATCH", "account-modify/1", b"<x><ip/><ip/></x>"),
-    ("PATCH", "account-modify/1", b"<x><ip><x/></ip></x>"),
-    ("PATCH", "account-modify/1", b"x" * 65537),
-    ("PATCH", "account-modify/1", b"<x><timestamp>-1</timestamp></x>"),
-    ("POST", "message-submit?account=1&argument=invalid", b""),
-    ("POST", "message-submit?account=99999&argument={}", b""),
-]
+BAD_CASES = {
+    "missing_record": ("GET", "account-inspect?uid=99999", b""),
+    "invalid_uid": ("GET", "account-inspect?uid=x", b""),
+    "unknown_field": ("GET", "account-collect?unknown=1", b""),
+    "missing_ip": ("POST", "account-submit", b""),
+    "invalid_ip": ("POST", "account-submit?ip=invalid", b""),
+    "empty_patch": ("PATCH", "account-modify/1", b"<record/>"),
+    "malformed_xml": ("PATCH", "account-modify/1", b"broken"),
+    "xml_declaration": ("PATCH", "account-modify/1", b"<!DOCTYPE x><x/>"),
+    "duplicate_fields": ("PATCH", "account-modify/1", b"<x><ip/><ip/></x>"),
+    "nested_xml": ("PATCH", "account-modify/1", b"<x><ip><x/></ip></x>"),
+    "oversized_xml": ("PATCH", "account-modify/1", b""),
+    "negative_timestamp": (
+        "PATCH", "account-modify/1", b"<x><timestamp>-1</timestamp></x>",
+    ),
+    "invalid_json": (
+        "POST", "message-submit?account=1&argument=invalid", b"",
+    ),
+    "missing_account": (
+        "POST", "message-submit?account=99999&argument={}", b"",
+    ),
+}
 
 
 def record(node):
@@ -75,25 +82,13 @@ class AppModel(RuleBasedStateMachine):
         self.feedback = {}
         self.pool = ThreadPoolExecutor(max_workers=2)
 
-    @initialize(test_mode=st.booleans(),
-                bad_cases=st.permutations(BAD_CASES),
-                denied=st.permutations(ROUTES),
-                ownership=st.permutations([False, True]))
-    def start(self, test_mode, bad_cases, denied, ownership):
+    @initialize(test_mode=st.booleans())
+    def start(self, test_mode):
         self.test_mode = test_mode
         process = partial(process_message, self.store, test_mode=test_mode)
         submit = partial(self.pool.submit, process)
         self.app = TestApp(create_app(self.store, submit, "user", "pass"))
         self.client = ApiClient("", "user", "pass", self.transport)
-        account = self.create_account("127.0.0.1")
-        message = self.create_message(account, "1234567")
-        self.modify_account(account, "::1", False)
-        for change_owner in ownership:
-            self.modify_message(message, account, change_owner)
-        for case in bad_cases:
-            self.invalid_request(case)
-        for route in denied:
-            self.unauthorized(route, "")
 
     def transport(self, method, path, body, headers):
         reply = self.app.request(
@@ -178,9 +173,11 @@ class AppModel(RuleBasedStateMachine):
         assert reply.headers["WWW-Authenticate"].startswith("Basic ")
         assert ET.fromstring(reply.body).findtext("error") == "Unauthorized"
 
-    @rule(case=st.sampled_from(BAD_CASES))
+    @rule(case=st.sampled_from(tuple(BAD_CASES)))
     def invalid_request(self, case):
-        method, path, body = case
+        method, path, body = BAD_CASES[case]
+        if case == "oversized_xml":
+            body = b"x" * OVERSIZED_BODY_BYTES
         reply = self.app.request(
             "/core/api/" + path, method=method, body=body,
             headers={"Authorization": self.client.authorization},
@@ -253,6 +250,6 @@ def test_api_model():
     run_state_machine_as_test(
         AppModel,
         settings=settings(
-            max_examples=20, stateful_step_count=20, deadline=None,
+            max_examples=40, stateful_step_count=30, deadline=None,
         ),
     )
