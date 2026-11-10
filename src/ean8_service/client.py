@@ -1,7 +1,7 @@
 import base64
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
-from xml.etree.ElementTree import fromstring
+from xml.etree import ElementTree as et
 
 from .xmlio import serialize
 
@@ -28,7 +28,7 @@ class ApiClient:
         if xml is not None:
             body = serialize(xml, "record")
             headers["Content-Type"] = "application/xml; charset=utf-8"
-        return fromstring(self.transport(method, path, body, headers))
+        return et.fromstring(self.transport(method, path, body, headers))
 
     def post_account_submit(self, ip):
         return self._call("POST", "account-submit", {"ip": ip})

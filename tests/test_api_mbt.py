@@ -6,7 +6,7 @@ from concurrent.futures import ThreadPoolExecutor
 from functools import partial
 from http import HTTPStatus
 from pathlib import Path
-from xml.etree.ElementTree import fromstring
+from xml.etree import ElementTree as et
 
 from hypothesis import settings, strategies as st
 from hypothesis.stateful import (
@@ -171,7 +171,7 @@ class AppModel(RuleBasedStateMachine):
         )
         assert reply.status_int == HTTPStatus.UNAUTHORIZED
         assert reply.headers["WWW-Authenticate"].startswith("Basic ")
-        assert fromstring(reply.body).findtext("error") == "Unauthorized"
+        assert et.fromstring(reply.body).findtext("error") == "Unauthorized"
 
     @rule(case=st.sampled_from(tuple(BAD_CASES)))
     def invalid_request(self, case):
@@ -184,7 +184,7 @@ class AppModel(RuleBasedStateMachine):
             expect_errors=True,
         )
         assert reply.status_int == HTTPStatus.BAD_REQUEST
-        assert fromstring(reply.body).findtext("error")
+        assert et.fromstring(reply.body).findtext("error")
 
     @invariant()
     def matches_model(self):

@@ -28,6 +28,9 @@ select = ["E", "W", "F", "N", "C90"]
 [tool.ruff.lint.mccabe]
 max-complexity = 10
 
+[tool.ruff.lint.pep8-naming]
+extend-ignore-names = ["et"]
+
 [project.scripts]
 ean8-cli = "ean8_service.cli:main"
 ean8-server = "ean8_service.server:main"
